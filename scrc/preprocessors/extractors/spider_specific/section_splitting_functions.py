@@ -95,9 +95,9 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
                 as keys and each value contains a tuple of 1)Boolean value indicating whether the role is available
                 or not 2) the span of occurrence of the role's keyword
         """
-        cm_start_available, cm_end_available, vpr_available, pr_available, as_available, gr_available, ju_available, ju_as_available, jusu_available, ti_available = False, False, False, False, False, False, False, False, False, False
+        cm_start_available, cm_end_available, vpr_available, pr_available, as_available, gr_available, ju_available, ju_as_available, ju_su_available, ti_available = False, False, False, False, False, False, False, False, False, False
 
-        cm_start_span, cm_end_span, vpr_span, pr_span, as_span, gr_span, ju_span, ju_as_span, gr_span, jusu_span, ti_span_list = None, None, None, None, None, None, None, None, None, None, None
+        cm_start_span, cm_end_span, vpr_span, pr_span, as_span, gr_span, ju_span, ju_as_span, gr_span, ju_su_span, ti_span_list = None, None, None, None, None, None, None, None, None, None, None
 
         cm_start_ = cm_start_RegEx.search(candidate)
         cm_end_ = cm_end_RegEx.search(candidate)
@@ -108,7 +108,7 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
         ju_ = ju_RegEx.search(candidate)
         ju_as_ = ju_as_RegEx.search(candidate)
         ju_dl_ = ju_dl_RegEx.search(candidate)
-        jusu_ = juSup_RegEx.search(candidate)
+        ju_su_ = juSup_RegEx.search(candidate)
         ti_ = ti_RegEx.search(candidate)
 
         if cm_start_ is not None:
@@ -147,9 +147,9 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
             ju_dl_available = True
             ju_dl_span = ju_dl_.span()
 
-        if jusu_ is not None:
-            jusu_available = True
-            jusu_span = jusu_.span()
+        if ju_su_ is not None:
+            ju_su_available = True
+            ju_su_span = jusu_.span()
 
         if ti_ is not None:
             ti_available = True
@@ -165,7 +165,7 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
             'ju': [ju_available, ju_span],
             'ju_as': [ju_as_available, ju_as_span],
             'ju_dl': [ju_dl_available, ju_dl_span],
-            'jusu': [jusu_available, jusu_span],
+            'ju_su': [jusu_available, jusu_span],
             'ti': [ti_available, ti_span_list]
         }
         return keyword_dict
@@ -386,8 +386,8 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
         @return: A dictionary ready to be written in the json file
         """
         roles_keys = {'pr': CourtRole.PRESIDENT, 'vpr': CourtRole.VICE_PRESIDENT, 'as': CourtRole.ASSESSOR,
-                      'gr': CourtRole.CLERK,
-                      'ju': CourtRole.JUDGE, 'jusu': CourtRole.JUDGE}
+                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': JUDGE_SUPPLEMENTARY,
+                      'ju_rp': CourtRole.JUDGE_REPORTER,'ju_dl': DELEGATE_JUDGE}
         feminine_titles = ['Mme', 'Mme.', 'Mmes', 'Mlle', 'Mlle.']
         masculine_titles = ['M', 'M.', 'MM.', 'MM', 'Messieurs']
         plural_titles = ['Mmes', 'MM.', 'MM', 'Messieurs']
@@ -943,10 +943,9 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
         @param roles: a list of tuples with judicial people's 1) role 2) details
         @return: A dictionary ready to be written in the json file
         """
-        roles_keys = {'pr': CourtRole.PRESIDENT, 'as': CourtRole.ASSESSOR, 'gr': CourtRole.CLERK,
-                      'vpr': CourtRole.VICE_PRESIDENT,
-                      'ju': CourtRole.JUDGE, 'ju_su': CourtRole.JUDGE_SUPPLEMENTARY, 'ju_as': CourtRole.JUDGE_ASSESSOR,
-                      'ju_rp': CourtRole.JUDGE_REPORTER}
+        roles_keys = {'pr': CourtRole.PRESIDENT, 'vpr': CourtRole.VICE_PRESIDENT, 'as': CourtRole.ASSESSOR,
+                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': JUDGE_SUPPLEMENTARY,
+                      'ju_rp': CourtRole.JUDGE_REPORTER, 'ju_dl': DELEGATE_JUDGE}
         feminine_titles = ['Mme', 'Mme.', 'Mmes', 'Mlle', 'Mlle.']
         masculine_titles = ['Messieur', 'M', 'M.', 'MM.', 'MM', 'Messieurs']
         plural_titles = ['Mmes', 'MM.', 'MM', 'Messieurs']
@@ -1242,14 +1241,12 @@ def NE_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
     return paragraphs_by_section
 
 
-
 def CH_BGer(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optional[Dict[Section, List[str]]]:
     """
     :param decision:    the decision parsed by bs4 or the string extracted of the pdf
     :param namespace:   the namespace containing some metadata of the court decision
     :return:            the sections dict (keys: section, values: list of paragraphs)
     """
-
 
     # As soon as one of the strings in the list (regexes) is encountered we switch to the corresponding section (key)
     # (?:C|c) is much faster for case insensitivity than [Cc] or (?i)c
