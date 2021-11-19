@@ -9,6 +9,8 @@ import json
 from scrc.enums.language import Language
 from scrc.enums.section import Section
 from scrc.utils.main_utils import clean_text
+from scrc.enums.court_role import CourtRole
+from scrc.enums.gender import Gender
 
 """
 This file is used to extract sections from decisions sorted by spiders.
@@ -95,9 +97,9 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
                 as keys and each value contains a tuple of 1)Boolean value indicating whether the role is available
                 or not 2) the span of occurrence of the role's keyword
         """
-        cm_start_available, cm_end_available, vpr_available, pr_available, as_available, gr_available, ju_available, ju_as_available, ju_su_available, ti_available = False, False, False, False, False, False, False, False, False, False
+        cm_start_available, cm_end_available, vpr_available, pr_available, as_available, gr_available, ju_available, ju_as_available, ju_su_available, ju_dl_available, ti_available = False, False, False, False, False, False, False, False, False, False, False
 
-        cm_start_span, cm_end_span, vpr_span, pr_span, as_span, gr_span, ju_span, ju_as_span, gr_span, ju_su_span, ti_span_list = None, None, None, None, None, None, None, None, None, None, None
+        cm_start_span, cm_end_span, vpr_span, pr_span, as_span, gr_span, ju_span, ju_as_span, gr_span, ju_su_span, ju_dl_span, ti_span_list = None, None, None, None, None, None, None, None, None, None, None, None
 
         cm_start_ = cm_start_RegEx.search(candidate)
         cm_end_ = cm_end_RegEx.search(candidate)
@@ -149,12 +151,25 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
 
         if ju_su_ is not None:
             ju_su_available = True
-            ju_su_span = jusu_.span()
+            ju_su_span = ju_su_.span()
 
         if ti_ is not None:
             ti_available = True
             ti_span_list = [m.span() for m in re.finditer(ti_RegEx, candidate)]
 
+        # to handle the corner case when we have ju_su or ju_as or ju_rp but not the ju
+        if ju_available and ju_as_available:
+            if ju_span[0] == ju_as_span[0]:
+                ju_available = False
+        if ju_available and ju_su_available:
+            if ju_span[0] == ju_su_span[0]:
+                ju_available = False
+        if ju_available and ju_dl_available:
+            if ju_span[0] == ju_dl_span[0]:
+                ju_available = False
+        if ju_as_available and as_available:
+            if ju_as_span[0] < as_span[0] and ju_as_span[1] >= as_span[1]:
+                as_available = False
         keyword_dict = {
             'cm_start': [cm_start_available, cm_start_span],
             'cm_end': [cm_start_available, cm_end_span],
@@ -165,7 +180,7 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
             'ju': [ju_available, ju_span],
             'ju_as': [ju_as_available, ju_as_span],
             'ju_dl': [ju_dl_available, ju_dl_span],
-            'ju_su': [jusu_available, jusu_span],
+            'ju_su': [ju_su_available, ju_su_span],
             'ti': [ti_available, ti_span_list]
         }
         return keyword_dict
@@ -386,8 +401,8 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
         @return: A dictionary ready to be written in the json file
         """
         roles_keys = {'pr': CourtRole.PRESIDENT, 'vpr': CourtRole.VICE_PRESIDENT, 'as': CourtRole.ASSESSOR,
-                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': JUDGE_SUPPLEMENTARY,
-                      'ju_rp': CourtRole.JUDGE_REPORTER,'ju_dl': DELEGATE_JUDGE}
+                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': CourtRole.JUDGE_SUPPLEMENTARY,
+                      'ju_rp': CourtRole.JUDGE_REPORTER,'ju_dl': CourtRole.DELEGATE_JUDGE}
         feminine_titles = ['Mme', 'Mme.', 'Mmes', 'Mlle', 'Mlle.']
         masculine_titles = ['M', 'M.', 'MM.', 'MM', 'Messieurs']
         plural_titles = ['Mmes', 'MM.', 'MM', 'Messieurs']
@@ -486,9 +501,9 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
     # vice president
     vpr_RegEx = re.compile(r'vice-pr[é,e]sident(e)?')
     # assesseur                 assesseur
-    as_RegEx = re.compile(r'[A,a]ssesseur|[A,a]ssesseuse')
+    as_RegEx = re.compile(r'[A,a]ssesseur(s)?|[A,a]ssesseuse')
     # greffier
-    gr_RegEx = re.compile(r'[G,g]reffi[e,è]r')
+    gr_RegEx = re.compile(r'[G,g]reffi[e,è]r(e)?')
     # juges
     ju_RegEx = re.compile(r'[J,j]ug(e)?(s)?')
     # juges assesseurs
@@ -703,6 +718,7 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
         if ti_ is not None:
             ti_available = True
             ti_span_list = [m.span() for m in re.finditer(ti_RegEx, candidate)]
+
         # to handle the corner case when we have ju_su or ju_as or ju_rp but not the ju
         if ju_available and ju_as_available:
             if ju_span[0] == ju_as_span[0]:
@@ -944,8 +960,8 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
         @return: A dictionary ready to be written in the json file
         """
         roles_keys = {'pr': CourtRole.PRESIDENT, 'vpr': CourtRole.VICE_PRESIDENT, 'as': CourtRole.ASSESSOR,
-                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': JUDGE_SUPPLEMENTARY,
-                      'ju_rp': CourtRole.JUDGE_REPORTER, 'ju_dl': DELEGATE_JUDGE}
+                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': CourtRole.JUDGE_SUPPLEMENTARY,
+                      'ju_rp': CourtRole.JUDGE_REPORTER, 'ju_dl': CourtRole.DELEGATE_JUDGE}
         feminine_titles = ['Mme', 'Mme.', 'Mmes', 'Mlle', 'Mlle.']
         masculine_titles = ['Messieur', 'M', 'M.', 'MM.', 'MM', 'Messieurs']
         plural_titles = ['Mmes', 'MM.', 'MM', 'Messieurs']
@@ -1114,19 +1130,19 @@ def GE_Gerichte(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
     paragraphs_by_section = {section: [] for section in Section}
     paragraphs = get_paragraphs(decision)
 
-    # Currently, we search the whole decision for the following keywords: president, presidence, compose, composition
-    cm_RegEx = re.compile(r'Si[é,e]geant(s)? :|'
+    # Find the start of the composition
+    cm_start_RegEx = re.compile(r'Si[é,e]geant(s)? :|'
+                          r'[A,a]u nom de la chambre administrative :|'             
                           r'L[a,e] [G,g]reffi[è,e]r(e)?|'
-                          r'L[a,e] pr[é,e]sident(e)?')
+                          r'L[a,e] pr[é,e]sident(e)?|'
+                          r'L[a,e] [V,v]ice-pr[é,e]sident(e)?')
 
-    # (r'L([a,e])?\b[P,p]r[é,e]siden[t,c]|'
-    # r'[S,s]i[é,e]geant(e)?(s)?')
     # Find the end of the composition
     cm_end_RegEx = re.compile(r'[V,v]oie(s)? de recours |'
                               r'La présente décision|'
                               r'(Une )?[C,c]opie conforme')
 
-    composition_candidate = get_composition_candidates(paragraphs, cm_RegEx, cm_end_RegEx)
+    composition_candidate = get_composition_candidates(paragraphs, cm_start_RegEx, cm_end_RegEx)
 
     # Uncomment to see the extraction results in plain txt file
 
@@ -1144,10 +1160,10 @@ def GE_Gerichte(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
         f.write('\n-------------------------------------------------------------\n')
         f.close()
 
-    paragraphs_by_section[Section.HEADER] = composition_candidate
-    paragraphs_by_section[Section.FACTS] = paragraphs
-    return paragraphs_by_section
-
+    #paragraphs_by_section[Section.HEADER] = composition_candidate
+    #paragraphs_by_section[Section.FACTS] = paragraphs
+    #return paragraphs_by_section
+    pass
 
 def NE_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optional[Dict[Section, List[str]]]:
     def get_paragraphs(soup):
