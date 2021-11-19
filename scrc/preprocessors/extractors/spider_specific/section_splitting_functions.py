@@ -402,7 +402,7 @@ def VD_FindInfo(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
         """
         roles_keys = {'pr': CourtRole.PRESIDENT, 'vpr': CourtRole.VICE_PRESIDENT, 'as': CourtRole.ASSESSOR,
                       'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': CourtRole.JUDGE_SUPPLEMENTARY,
-                      'ju_rp': CourtRole.JUDGE_REPORTER,'ju_dl': CourtRole.DELEGATE_JUDGE}
+                      'ju_rp': CourtRole.JUDGE_REPORTER, 'ju_dl': CourtRole.DELEGATE_JUDGE}
         feminine_titles = ['Mme', 'Mme.', 'Mmes', 'Mlle', 'Mlle.']
         masculine_titles = ['M', 'M.', 'MM.', 'MM', 'Messieurs']
         plural_titles = ['Mmes', 'MM.', 'MM', 'Messieurs']
@@ -780,7 +780,7 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
             if idx_val < len(keywords) - 1:
                 next_role = keywords[idx_val + 1][1][1]
 
-            if (idx_title == len(ti_)):
+            if idx_title == len(ti_):
                 print(candidate)
                 print(keywords)
                 print(roles)
@@ -831,9 +831,9 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
             if idx_val != len(keywords) - 1:
                 next_role = keywords[idx_val + 1]
             # if composition_end is within president_start+5 then names come after their roles
-            if (cm_[1][1] + 5 > val[1][1][0]):
+            if cm_[1][1] + 5 > val[1][1][0]:
                 # if we are not at the end
-                if (idx_val != len(keywords) - 1):
+                if idx_val != len(keywords) - 1:
                     roles.append(
                         [val[0], candidate[val[1][1][1]:next_role[1][1][0]]])  # current_role_end to next_role_start
                 # last person in the composition
@@ -902,6 +902,546 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
                     roles.append([val[0], candidate[ti_e[0]:next_role[0]]])  # ti_start to next_role_start
                 else:  # we should not end up here
                     assert False
+        return role
+
+    def remove_special_characters(in_str):
+        """
+
+        @param in_str: Input string
+        @return: output string without the following characters: {",",";","s:","e:","******"}
+        """
+        # for ch in characters_to_replace:
+        in_str = in_str.replace(",", "")
+        in_str = in_str.replace(";", "")
+        # some times roles are female or plural
+        in_str = in_str.replace("s:", "")
+        in_str = in_str.replace("e:", "")
+        # remove sequences of '*'
+        star_RegEx = re.compile(r'\*+')
+        star_ = star_RegEx.search(in_str)
+        if star_ is not None:
+            star_s = star_.span()
+            in_str = in_str[:star_s[0] - 1] + in_str[star_s[1] + 1:]
+        return in_str
+
+    def first_last_name(full_name, detail):
+        """
+
+        @param full_name: A string that potentially contains: first name (or initials) and last name
+        @param detail: a dictionary which contains the details of the judicial people
+        @return: the detail dictionary with two new records: first name (or initials) and last name
+        """
+        dot_RegEx = re.compile(r'\w\.\b')
+        dot_ = dot_RegEx.search(full_name)
+        names = full_name.split(" ")
+        last_name = False
+        # remove all the empty strings or strings of length 1
+        for idx, name in enumerate(names):
+            if name == "" or len(name) == 1:
+                names.pop(idx)
+        for name in names:
+            # is it intials?
+            if dot_ is not None:
+                detail['initials']: name
+                last_name = True
+            # is it the first or the last name?
+            # In some decisions, we only have the last name
+            elif len(names) > 1 and last_name == False:
+                detail['first name'] = name
+                last_name = True
+            else:
+                detail['last name'] = name
+        return
+
+    def extract_details(roles):
+        """
+
+        @param roles: a list of tuples with judicial people's 1) role 2) details
+        @return: A dictionary ready to be written in the json file
+        """
+        roles_keys = {'pr': CourtRole.PRESIDENT, 'vpr': CourtRole.VICE_PRESIDENT, 'as': CourtRole.ASSESSOR,
+                      'gr': CourtRole.CLERK, 'ju': CourtRole.JUDGE, 'ju_su': CourtRole.JUDGE_SUPPLEMENTARY,
+                      'ju_rp': CourtRole.JUDGE_REPORTER, 'ju_dl': CourtRole.DELEGATE_JUDGE}
+        feminine_titles = ['Mme', 'Mme.', 'Mmes', 'Mlle', 'Mlle.']
+        masculine_titles = ['Messieur', 'M', 'M.', 'MM.', 'MM', 'Messieurs']
+        plural_titles = ['Mmes', 'MM.', 'MM', 'Messieurs']
+        separator_RegEx = re.compile(r'\bet')
+        details = {}
+
+        for idx_r, r in enumerate(roles):
+
+            detail_list = []
+            key = roles_keys.get(r[0])
+            # if they have used titles, our job is very easy
+            ti_list = [m.span() for m in re.finditer(ti_RegEx, r[1])]
+            # Are there several people with the same role?
+            if len(ti_list) > 0:
+
+                for ti_ in ti_list:
+                    # body of the extracted record
+                    body = r[1][
+                           ti_[1] + 1:]  # I am using ti_[1]+1 to eliminate '.'s at the begging of names (when they have
+                    # used MM instead of MM., for example.
+
+                    # male or female?
+                    gender = None
+                    # what is the title?
+                    title = r[1][ti_[0]:ti_[1]]
+
+                    # set the gender
+                    if title in feminine_titles:
+                        gender = Gender.FEMALE
+                    elif title in masculine_titles:
+                        gender = Gender.MALE
+                    else:
+                        message = f"Undefined title: " + title
+                        raise ValueError(message)
+
+                    # Is it a plural title?
+                    if title in plural_titles:
+
+                        # I need to split the names, if they have used et
+                        if separator_RegEx.search(body) is not None:
+                            all_names = body.split('et')
+                        else:
+                            all_names = [body]
+                        for name in all_names:
+                            detail = {}
+                            name = remove_special_characters(name)
+                            detail['gender'] = gender
+                            first_last_name(name, detail)
+                            detail['full name'] = name
+                            detail_list.append(detail)
+
+                    else:
+                        detail = {}
+                        # do we have multiple people?
+                        if separator_RegEx.search(body) is not None:
+                            body = body[:separator_RegEx.search(body).span()[0]]  # body [: until next title's start]
+
+                        body = remove_special_characters(body)
+
+                        detail['gender'] = gender
+                        first_last_name(body, detail)
+                        detail['full name'] = body
+                        detail_list.append(detail)
+
+            else:
+                # what we will write to the json
+                body = r[1]
+                all_names = [body]
+                if separator_RegEx.search(body) is not None:
+                    all_names = body.split('et')
+                for name in all_names:
+                    detail = {}
+                    name = remove_special_characters(name)
+                    detail['gender'] = 'unknown'
+                    first_last_name(name, detail)
+                    detail['full name'] = name
+                    detail_list.append(detail)
+            details[key] = detail_list
+        return details
+
+    # Here are the RegEx for finding different roles and titles in the composition
+    # composition
+    cm_RegEx = re.compile(r'[C,c]omposition')
+    # president
+    pr_RegEx = re.compile(r'[P,p]r[é,e]siden[t,c]')
+    # vice president
+    vpr_RegEx = re.compile(r'vice-pr[é,e]sident(e)?')
+    # assesseur
+    as_RegEx = re.compile(r'[A,a]ssesseur | [A,a]ssesseuse')
+    # greffier
+    gr_RegEx = re.compile(r'[G,g]reffi[e,è]r')
+    # juges
+    ju_RegEx = re.compile(r'[J,j]ug')
+    # juge suppléante
+    ju_sup_RegEx = re.compile(r'[J,j]uge suppl[é,e]ant')
+    # juges assesseurs
+    ju_as_RegEx = re.compile(r'[J,j]ug(e)?(s)? assesseur(s)?')
+    # juge rapporteur
+    ju_rp_RegEx = re.compile(r'[J,j]uge rapporteur')
+    # title
+    ti_RegEx = re.compile(r'\bMme(\.)?\b|\bM(\.)?\b|\bMM(\.)?\b|Mlle(\.)?|Mme(s)?|Messieur(s)?')
+
+    role = extract_judicial_people(composition_candidate)
+    details = extract_details(role)
+    f = open("VD_Omni_details.txt", "a")
+    f.write('%s' % composition_candidate)
+    f.write('%s' % details)
+    f.write('\n-------------------------------------------------------------\n')
+    f.close()
+    #############################################END OF SHOULD BE MOVED TO THE COURT COMPOSITION FILE
+    # paragraphs_by_section[Section.HEADER] = composition_candidate
+    # paragraphs_by_section[Section.FACTS] = paragraphs
+    # return paragraphs_by_section
+    pass
+
+
+def GE_Gerichte(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optional[Dict[Section, List[str]]]:
+
+    print("GE_Gerichte\n")
+    def get_paragraphs(soup):
+
+        """
+        Get composition of the decision
+        :param soup:
+        :return:
+        """
+
+        divs = soup.find_all("div", class_=False)
+        paragraphs = []
+
+        # If no div is returned raise an error
+
+        if len(divs) == 0:
+            message = f"No div has been returned!"
+            raise ValueError(message)
+        for div in divs:
+            paragraphs.append(clean_text(div.text))
+        return paragraphs
+
+    def get_composition_candidates(paragraphs, cm_start_RegEx, cm_end_RegEx):
+
+        # did we miss composition of some of the decisions?
+
+        composition_candidate = None
+
+        for paragraph in paragraphs:
+
+            cm_start_ = cm_start_RegEx.search(paragraph)
+
+            # If we did not find the RegEx in the paragraph
+            if cm_start_ is None:
+                continue
+            else:
+                # cm_end.start() would be relatie to cm_start_.start()
+                cm_end = cm_end_RegEx.search(paragraph[cm_start_.start():])
+
+                if cm_end is None:
+                    composition_candidate = paragraph[cm_start_.start():]
+                else:
+                    # beacause cm_end.start() is relative
+                    composition_candidate = paragraph[cm_start_.start():cm_start_.start() + cm_end.start()]
+                break
+
+            # Store all the compositions in a signle list
+
+        return composition_candidate
+
+    paragraphs_by_section = {section: [] for section in Section}
+    paragraphs = get_paragraphs(decision)
+
+    # Find the start of the composition
+    cm_start_RegEx = re.compile(r'Si[é,e]geant(s)? :|'
+                                r'[A,a]u nom de la (chambre)?(Tribunal)? administrative :|'
+                                r'L[a,e] [G,g]reffi[è,e]r(e)?|'
+                                r'L[a,e] pr[é,e]sident(e)?|'
+                                r'L[a,e] [V,v]ice-pr[é,e]sident(e)?')
+
+    # Find the end of the composition
+    cm_end_RegEx = re.compile(r'[V,v]oie(s)? de recours |'
+                              r'La présente décision|'
+                              r'(Une )?[C,c]opie conforme')
+
+    composition_candidate = get_composition_candidates(paragraphs, cm_start_RegEx, cm_end_RegEx)
+
+    #############################################SHOULD BE MOVED TO THE COURT COMPOSITION FILE
+    def find_the_keywords(candidate):
+        """
+
+                @param candidate: a string which should contain the judicial people @return: a dictionary with roles
+                as keys and each value contains a tuple of 1)Boolean value indicating whether the role is available
+                or not 2) the span of occurrence of the role's keyword
+        """
+        ad_available, cm_end_available, vpr_available, pr_available, pr_si_available, as_available, gr_available, ju_available, ju_as_available, ju_su_available, ju_rp_available, ti_available = False, False, False, False, False, False, False, False, False, False, False, False
+        ad_span, cm_end_span, vpr_span, pr_span, pr_si_span, as_span, gr_span, ju_span, ju_as_span, ju_su_span, ju_rp_span, ti_span_list = None, None, None, None, None, None, None, None, None, None, None, None
+
+        ad_ = ad_RegEx.search(candidate)
+        cm_end_ = cm_end_RegEx.search(candidate)
+        pr_ = pr_RegEx.search(candidate)
+        vpr_ = vpr_RegEx.search(candidate)
+        pr_si_ = pr_si_RegEx.search(candidate)
+        as_ = as_RegEx.search(candidate)
+        gr_ = gr_RegEx.search(candidate)
+        ju_ = ju_RegEx.search(candidate)
+        ju_su_ = ju_sup_RegEx.search(candidate)
+        ju_as_ = ju_as_RegEx.search(candidate)
+        ju_rp_ = ju_rp_RegEx.search(candidate)
+        ti_ = ti_RegEx.search(candidate)
+
+        if ad_ is not None:
+            ad_available = True
+            ad_span = ad_.span()
+
+        if cm_end_ is not None:
+            cm_end_available = True
+            cm_end_span = cm_end_.span()
+
+        if pr_ is not None:
+            pr_available = True
+            pr_span = pr_.span()
+
+        if vpr_ is not None:
+            vpr_available = True
+            vpr_span = vpr_.span()
+
+        if pr_si_ is not None:
+            pr_si_available = True
+            pr_si_span = pr_si_.span()
+
+        if as_ is not None:
+            as_available = True
+            as_span = as_.span()
+
+        if gr_ is not None:
+            gr_available = True
+            gr_span = gr_.span()
+
+        if ju_ is not None:
+            ju_available = True
+            ju_span = ju_.span()
+
+        if ju_su_ is not None:
+            ju_su_available = True
+            ju_su_span = ju_su_.span()
+
+        if ju_as_ is not None:
+            ju_as_available = True
+            ju_as_span = ju_as_.span()
+
+        if ju_rp_ is not None:
+            ju_rp_available = True
+            ju_rp_span = ju_rp_.span()
+
+        if ti_ is not None:
+            ti_available = True
+            ti_span_list = [m.span() for m in re.finditer(ti_RegEx, candidate)]
+
+        # to handle the corner case when we have ju_su or ju_as or ju_rp but not the ju
+        if ju_available and ju_as_available:
+            if ju_span[0] == ju_as_span[0]:
+                ju_available = False
+        if ju_available and ju_su_available:
+            if ju_span[0] == ju_su_span[0]:
+                ju_available = False
+        if ju_available and ju_rp_available:
+            if ju_span[0] == ju_rp_span[0]:
+                ju_available = False
+        if pr_available and pr_si_available:
+            if pr_span[0] == pr_si_span[0]:
+                pr_available = False
+
+        keyword_dict = {
+            'ad': [ad_available, ad_span],
+            'cm_end': [cm_end_available, cm_end_span],
+            'pr': [pr_available, pr_span],
+            'pr_si': [pr_si_available, pr_si_span],
+            'vpr': [vpr_available, vpr_span],
+            'as': [as_available, as_span],
+            'gr': [gr_available, gr_span],
+            'ju': [ju_available, ju_span],
+            'ju_su': [ju_su_available, ju_su_span],
+            'ju_as': [ju_as_available, ju_as_span],
+            'ju_rp': [ju_rp_available, ju_rp_span],
+            'ti': [ti_available, ti_span_list]
+        }
+        return keyword_dict
+
+    def eliminate_invalid_roles(keyword_dict):
+        """
+
+        @param keyword_dict: receives a dictionary with keys = role and values = tuples of bool (availability of the role)
+        and the span of the keyword
+        @return: returns a dictionary of roles whose availability field is True
+        """
+        invalid_roles = []
+        for k, v in keyword_dict.items():
+            # if a role is not found, mark it as invalid
+            if not v[0]:
+                invalid_roles.append(k)
+        for k in invalid_roles:
+            keyword_dict.pop(k)
+        return keyword_dict
+
+    def extraction_using_titles(ti_, tr_, candidate, keywords):
+        """
+
+        @param ti_: a list of title's span()
+        @param candidate: a string which is potentially contains the composition
+        @param keywords: a list of sorted roles and their span()
+        @return:
+        """
+        roles = []
+
+        idx_val = 0
+        idx_title = 0
+        prev_role = None
+        next_role = None
+
+        for val in keywords:
+
+            if idx_val < len(keywords) - 1:
+                next_role = keywords[idx_val + 1][1][1]
+
+            if idx_title == len(ti_):
+                print(candidate)
+                print(keywords)
+                print(roles)
+
+            ti_e = ti_[idx_title]
+
+            if prev_role is not None:
+                # Several people have the same role
+                while ti_e[0] < prev_role and idx_title < len(ti_) - 1:
+                    # I should go to next title
+                    idx_title += 1
+                    ti_e = ti_[idx_title]
+            # we have a 'Au nom de la chambre(Tribunal) administrative' in between which changes the format
+            # Before the tr_.start everything is of the form : 'name, role'
+            # After the tr_.end everything is of form: 'role: name'
+            if tr_[0] is not False and tr_[1][0] != 0:
+                # we are in the fist candidate part. format: 'name, role'
+                if (ti_e[0] < tr_[1][0]):
+                    roles.append([val[0], candidate[ti_e[0]:val[1][1][0]]])  # ti_start to role start
+                # we are in the second candidate part. format: 'role: name'
+                else:
+                    # Is it the last item?
+                    if idx_val == len(keywords) - 1:
+                        roles.append([val[0], candidate[val[1][1][1]:]])
+                    else:
+                        # we are in the middle
+                        if next_role is not None:
+                            roles.append([val[0], candidate[ti_e[0]:next_role[0]]])  # ti_start to next_role_start
+                        else:  # we should not end up here
+                            assert False
+            # we have a 'Au nom de la chambre(Tribunal) administrative' at the beginning
+            # Everything is of format: 'role: name'
+            elif tr_[0] is not False and tr_[1][0] == 0:
+                if idx_val == len(keywords) - 1:
+                    roles.append([val[0], candidate[val[1][1][1]:]])
+                else:
+                    # we are in the middle
+                    if next_role is not None:
+                        roles.append([val[0], candidate[ti_e[0]:next_role[0]]])  # ti_start to next_role_start
+                    else:  # we should not end up here
+                        assert False
+            # there is no 'Au nom de la chambre(Tribunal) administrative' in the composition
+            else:
+                # we will just do the usual thing then
+                # the person's name and title are mentioned before their roles
+                if ti_e[0] < val[1][1][0]:
+                    roles.append([val[0], candidate[ti_e[0]:val[1][1][0]]])  # ti_start to role start
+                # the person's name and title are mentioned after their roles
+                else:
+                    # Is it the last item?
+                    if idx_val == len(keywords) - 1:
+                        roles.append([val[0], candidate[val[1][1][1]:]])
+                    else:
+                        # we are in the middle
+                        if next_role is not None:
+                            roles.append([val[0], candidate[ti_e[0]:next_role[0]]])  # ti_start to next_role_start
+                        else:  # we should not end up here
+                            assert False
+
+            # we need to store the prev_role for cases when several people have the same role
+            prev_role = val[1][1][0]
+            # increase the indexes for next loop
+            idx_val += 1
+            idx_title += 1
+        return roles
+
+    def extraction_using_composition(cm_, candidate, keywords):
+        """
+        @param cm_: The output of cm_RegEx. We can call its span() method to find where it occurs in the string
+        @param candidate: a 400-character string which potentially contains the composition
+        @param keywords: a sorted list of roles and their span
+        @return: A list of tuples whith 1)the role keyword 2) their details
+        """
+        roles = []
+        idx_val = 0
+        prev_role = None
+        next_role = None
+        # for role in keywords
+        for val in keywords:
+            # If we are not at the end, store the next role in next_role variable
+            if idx_val != len(keywords) - 1:
+                next_role = keywords[idx_val + 1]
+            # if composition_end is within president_start+5 then names come after their roles
+            if (cm_[1][1] + 5 > val[1][1][0]):
+                # if we are not at the end
+                if (idx_val != len(keywords) - 1):
+                    roles.append(
+                        [val[0], candidate[val[1][1][1]:next_role[1][1][0]]])  # current_role_end to next_role_start
+                # last person in the composition
+                else:
+                    roles.append([val[0], candidate[val[1][1][1]:]])
+            # otherwise, the names appear before the keyword
+            else:
+                # we have just started
+                if idx_val == 0:
+                    roles.append([val[0], candidate[cm_[1][1]:val[1][1][0]]])  # composition_end to role_begin
+                # if we are in between
+                elif idx_val != len(keywords) - 1:
+                    roles.append(
+                        [val[0], candidate[prev_role[1][1][1]:val[1][1][0]]])  # prev_role_end to current_role_start
+                else:
+                    # some times we have 'Greffiere: name'
+                    if val[1][1][1] + 1 < len(candidate) and candidate[val[1][1][1] + 1] == ':':
+                        roles.append([val[0], candidate[val[1][1][1]:]])
+                    else:
+                        roles.append(
+                            [val[0], candidate[prev_role[1][1][1]:val[1][1][0]]])  # prev_role_end to current_role_start
+
+            # we need to store the prev_role for cases when one role has several titles
+            prev_role = val
+            # increase the indexes for next loop
+            idx_val += 1
+        return roles
+
+    def extract_judicial_people(candidate):
+        """
+
+        @param candidates: the string candidates for compostion
+        @return: a list of tuples with judicial people's 1) role 2)their details
+        """
+        print("*****************\n")
+        # iterate over all the candidates
+
+        # find all the keyword's occurance in the candidate
+        keywords = find_the_keywords(candidate)
+        # pop out composition, and titles
+        tr_ = keywords.pop('tr')
+        cm_end_ = keywords.pop('cm_end')
+        ti_ = keywords.pop('ti')
+        # it is vital to see if titles are used or not
+        ti_available = ti_[0]
+        ti_ = ti_[1]
+        # preprocessing: eliminate those roles that were not found
+        keywords = eliminate_invalid_roles(keywords)
+        # preprocessing: sort the roles based on their order (which comes earlier?)
+        sorted_keywords = sorted(keywords.items(), key=lambda e: e[1][1][0])
+
+        # if decision is using the people titles
+        if ti_available is not False and len(ti_) >= len(keywords.items()):
+
+            role = extraction_using_titles(ti_, tr_, candidate, sorted_keywords)
+
+        # if titles are not used or not everybody has a title
+        else:
+            # # we may be able to extract people using the composition keyword
+            # if cm_start_[0]:
+            #     role = extraction_using_composition(cm_start_, candidate, sorted_keywords)
+            #
+            # else:
+            #     # we are in the middle
+            #     if next_role is not None:
+            #         roles.append([val[0], candidate[ti_e[0]:next_role[0]]])  # ti_start to next_role_start
+            #     else:  # we should not end up here
+            #         assert False
+            print(candidate)
+            message = f"Not everybody using titles"
+            raise ValueError(message)
         return role
 
     def remove_special_characters(in_str):
@@ -1043,12 +1583,14 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
         return details
 
     # Here are the RegEx for finding different roles and titles in the composition
-    # composition
-    cm_RegEx = re.compile(r'[C,c]omposition')
+    # In GE some times 'Au nom du Tribunal administratif' happens in between and changes the structure
+    ad_RegEx = re.compile(r'[A,a]u nom du ([T,t]ribunal)?(chambre)? administratif')
     # president
     pr_RegEx = re.compile(r'[P,p]r[é,e]siden[t,c]')
     # vice president
     vpr_RegEx = re.compile(r'vice-pr[é,e]sident(e)?')
+    # le président siégeant
+    pr_si_RegEx = re.compile(r'[P,]pr[é,e]sident si[é,e]geant')
     # assesseur
     as_RegEx = re.compile(r'[A,a]ssesseur | [A,a]ssesseuse')
     # greffier
@@ -1066,84 +1608,12 @@ def VD_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optiona
 
     role = extract_judicial_people(composition_candidate)
     details = extract_details(role)
-    f = open("VD_Omni_details.txt", "a")
+    f = open("GE_Gerichte_details.txt", "a")
     f.write('%s' % composition_candidate)
     f.write('%s' % details)
     f.write('\n-------------------------------------------------------------\n')
     f.close()
     #############################################END OF SHOULD BE MOVED TO THE COURT COMPOSITION FILE
-    # paragraphs_by_section[Section.HEADER] = composition_candidate
-    # paragraphs_by_section[Section.FACTS] = paragraphs
-    # return paragraphs_by_section
-    pass
-
-
-def GE_Gerichte(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optional[Dict[Section, List[str]]]:
-    def get_paragraphs(soup):
-
-        """
-        Get composition of the decision
-        :param soup:
-        :return:
-        """
-
-        divs = soup.find_all("div", class_=False)
-        paragraphs = []
-
-        # If no div is returned raise an error
-
-        if len(divs) == 0:
-            message = f"No div has been returned!"
-            raise ValueError(message)
-        for div in divs:
-            paragraphs.append(clean_text(div.text))
-        return paragraphs
-
-    def get_composition_candidates(paragraphs, cm_start_RegEx, cm_end_RegEx):
-
-        # did we miss composition of some of the decisions?
-
-        composition_candidate = None
-
-        for paragraph in paragraphs:
-
-            cm_start_ = cm_start_RegEx.search(paragraph)
-
-            # If we did not find the RegEx in the paragraph
-            if cm_start_ is None:
-                continue
-            else:
-                # cm_end.start() would be relatie to cm_start_.start()
-                cm_end = cm_end_RegEx.search(paragraph[cm_start_.start():])
-
-                if cm_end is None:
-                    composition_candidate = paragraph[cm_start_.start():]
-                else:
-                    # beacause cm_end.start() is relative
-                    composition_candidate = paragraph[cm_start_.start():cm_start_.start() + cm_end.start()]
-                break
-
-            # Store all the compositions in a signle list
-
-        return composition_candidate
-
-    paragraphs_by_section = {section: [] for section in Section}
-    paragraphs = get_paragraphs(decision)
-
-    # Find the start of the composition
-    cm_start_RegEx = re.compile(r'Si[é,e]geant(s)? :|'
-                          r'[A,a]u nom de la chambre administrative :|'             
-                          r'L[a,e] [G,g]reffi[è,e]r(e)?|'
-                          r'L[a,e] pr[é,e]sident(e)?|'
-                          r'L[a,e] [V,v]ice-pr[é,e]sident(e)?')
-
-    # Find the end of the composition
-    cm_end_RegEx = re.compile(r'[V,v]oie(s)? de recours |'
-                              r'La présente décision|'
-                              r'(Une )?[C,c]opie conforme')
-
-    composition_candidate = get_composition_candidates(paragraphs, cm_start_RegEx, cm_end_RegEx)
-
     # Uncomment to see the extraction results in plain txt file
 
     if composition_candidate is None:
@@ -1160,10 +1630,11 @@ def GE_Gerichte(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Opt
         f.write('\n-------------------------------------------------------------\n')
         f.close()
 
-    #paragraphs_by_section[Section.HEADER] = composition_candidate
-    #paragraphs_by_section[Section.FACTS] = paragraphs
-    #return paragraphs_by_section
+    # paragraphs_by_section[Section.HEADER] = composition_candidate
+    # paragraphs_by_section[Section.FACTS] = paragraphs
+    # return paragraphs_by_section
     pass
+
 
 def NE_Omni(decision: Union[bs4.BeautifulSoup, str], namespace: dict) -> Optional[Dict[Section, List[str]]]:
     def get_paragraphs(soup):
