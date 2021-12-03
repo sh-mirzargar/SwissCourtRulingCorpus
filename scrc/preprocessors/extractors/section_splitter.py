@@ -81,7 +81,7 @@ class SectionSplitter(AbstractExtractor):
             dfs = self.select(engine, lang, where=where, chunksize=self.chunksize)
             for df in dfs:
                 df = df.apply(self.process_one_df_row, axis='columns')
-                self.update(engine, df, lang, [section.value for section in Section] + ['paragraphs'], self.output_dir)
+                #self.update(engine, df, lang, [section.value for section in Section] + ['paragraphs'], self.output_dir)
                 self.log_progress(self.chunksize)
 
             self.log_coverage(engine, spider, lang)
